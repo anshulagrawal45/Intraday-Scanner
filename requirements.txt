@@ -3,5 +3,5 @@ yfinance
 pandas
 beautifulsoup4
 numpy
-pandas_ta
+pandas-ta
 tabulate
