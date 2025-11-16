@@ -9,8 +9,12 @@ on:
 jobs:
   run-scripts:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -18,35 +22,41 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install system deps (for TA-Lib)
-        # TA-Lib needs a C library. Install dev package before pip.
+      - name: Install system dependencies (for TA-Lib)
         run: |
-          sudo apt-get update
-          # libta-lib-dev provides headers/libraries for TA-Lib
+          sudo apt-get update -y
+          # TA-Lib requires the native C library and headers.
           sudo apt-get install -y build-essential libta-lib0 libta-lib-dev
 
       - name: Install Python dependencies
         run: |
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          if [ -f requirements.txt ]; then
+            python -m pip install --upgrade pip
+            pip install -r requirements.txt
+          else
+            echo "No requirements.txt found — skipping pip install"
+          fi
 
       - name: Run scanner.py and trend.py, capture outputs
         id: run
         run: |
-          set -x
+          set -euo pipefail
+          echo "Running scanner.py..."
           python scanner.py > scanner_output.txt 2>&1 || true
-          python trend.py   > trend_output.txt   2>&1 || true
+          echo "Running trend.py..."
+          python trend.py > trend_output.txt 2>&1 || true
 
           echo "=== scanner.py output ===" > final_output.txt
           cat scanner_output.txt >> final_output.txt
           echo -e "\n\n=== trend.py output ===" >> final_output.txt
           cat trend_output.txt >> final_output.txt
 
-          # expose multiline output to later steps
+          # Expose multiline output to subsequent steps
           echo "OUTPUT<<EOF" >> $GITHUB_OUTPUT
           cat final_output.txt >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Upload output artifact (optional, for debugging)
+      - name: Upload output artifact (for debugging)
         uses: actions/upload-artifact@v4
         with:
           name: daily-script-output
@@ -55,30 +65,62 @@ jobs:
             trend_output.txt
             final_output.txt
 
-      - name: Send email (Gmail SMTP) (if secrets set)
-        if: ${{ secrets.EMAIL_USER && secrets.EMAIL_APP_PASSWORD }}
+      # === Email step: robust, checks secrets at runtime ===
+      - name: Send email (Gmail SMTP) - robust check and debug
+        # load secrets into env (safe). Do NOT use them in an `if:` expression.
         env:
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_APP_PASSWORD }}
           OUTPUT: ${{ steps.run.outputs.OUTPUT }}
         run: |
           python - <<'PY'
-          import os, smtplib
+          import os, smtplib, traceback
           from email.message import EmailMessage
-          out = os.environ.get('OUTPUT','(no output)')
+          from pathlib import Path
+
+          user = os.environ.get('EMAIL_USER')
+          pwd  = os.environ.get('EMAIL_PASS')
+          out  = os.environ.get('OUTPUT', '')
+
+          print("==== Email step debug ====")
+          print("EMAIL_USER present?:", bool(user))
+          print("EMAIL_PASS present?:", bool(pwd))
+          print("OUTPUT size (chars):", len(out))
+
+          if not user or not pwd:
+              print("\nERROR: Missing EMAIL_USER or EMAIL_APP_PASSWORD secret.")
+              print("Make sure both secrets exist under: Settings → Secrets and variables → Actions")
+              # Exit with non-zero so the run clearly indicates the missing secrets
+              raise SystemExit("Missing email secrets")
+
+          # Prepare email
           msg = EmailMessage()
           msg['Subject'] = 'Daily: scanner.py + trend.py output'
-          msg['From'] = os.environ['EMAIL_USER']
-          msg['To'] = os.environ['EMAIL_USER']
-          short = out.splitlines()[:25]
-          msg.set_content("Attached: combined script output.\n\nPreview:\n" + "\n".join(short))
+          msg['From'] = user
+          msg['To'] = user
+          # Put a small preview in the body and attach full output
+          preview_lines = out.splitlines()[:30]
+          msg.set_content("Attached: combined script output.\n\nPreview:\n" + "\n".join(preview_lines))
           msg.add_attachment(out, filename="daily_output.txt")
-          with smtplib.SMTP_SSL('smtp.gmail.com', 465) as s:
-              s.login(os.environ['EMAIL_USER'], os.environ['EMAIL_PASS'])
-              s.send_message(msg)
-          print("Email sent")
+
+          try:
+              print("Attempting SMTP connect to smtp.gmail.com:465 ...")
+              with smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=30) as s:
+                  print("Connected. Attempting login ...")
+                  s.login(user, pwd)
+                  print("Login succeeded. Sending message ...")
+                  s.send_message(msg)
+              print("Email sent successfully.")
+          except Exception as e:
+              print("Email send failed:", type(e).__name__, str(e))
+              traceback.print_exc()
+              # Provide friendly hint
+              print("\nHints:")
+              print("- Ensure the App Password is active and 2-Step Verification is enabled on the Google account.")
+              print("- If this is a Google Workspace account, the admin may block SMTP/App Passwords.")
+              raise
           PY
 
-      - name: Show run summary
+      - name: Final note
         run: |
-          echo "Workflow finished. Artifact and email steps ran (if secrets provided)."
+          echo "Workflow finished. If email step failed, check the logs above for details."
