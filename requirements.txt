@@ -1,0 +1,7 @@
+requests
+yfinance
+pandas
+beautifulsoup4
+numpy
+TA-Lib
+tabulate
