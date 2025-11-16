@@ -22,16 +22,37 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install system dependencies (for TA-Lib)
+      - name: Install build tools and download/build TA-Lib C library
         run: |
+          set -euxo pipefail
+
+          echo "Installing basic build tools..."
           sudo apt-get update -y
-          # TA-Lib requires the native C library and headers.
-          sudo apt-get install -y build-essential libta-lib0 libta-lib-dev
+          sudo apt-get install -y build-essential wget curl
+
+          echo "Downloading TA-Lib C source (v0.4.0)..."
+          wget -q https://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
+          tar -xzf ta-lib-0.4.0-src.tar.gz
+          cd ta-lib
+
+          echo "Configuring and building TA-Lib..."
+          ./configure --prefix=/usr
+          make -j2
+          sudo make install
+
+          echo "Updating linker cache..."
+          sudo ldconfig
+
+          # cleanup
+          cd ..
+          rm -rf ta-lib ta-lib-0.4.0-src.tar.gz
+          echo "TA-Lib C library installed."
 
       - name: Install Python dependencies
         run: |
+          set -euxo pipefail
+          python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then
-            python -m pip install --upgrade pip
             pip install -r requirements.txt
           else
             echo "No requirements.txt found — skipping pip install"
@@ -65,9 +86,7 @@ jobs:
             trend_output.txt
             final_output.txt
 
-      # === Email step: robust, checks secrets at runtime ===
-      - name: Send email (Gmail SMTP) - robust check and debug
-        # load secrets into env (safe). Do NOT use them in an `if:` expression.
+      - name: Send email (Gmail SMTP) - runtime check & debug
         env:
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_APP_PASSWORD }}
@@ -76,7 +95,6 @@ jobs:
           python - <<'PY'
           import os, smtplib, traceback
           from email.message import EmailMessage
-          from pathlib import Path
 
           user = os.environ.get('EMAIL_USER')
           pwd  = os.environ.get('EMAIL_PASS')
@@ -90,15 +108,12 @@ jobs:
           if not user or not pwd:
               print("\nERROR: Missing EMAIL_USER or EMAIL_APP_PASSWORD secret.")
               print("Make sure both secrets exist under: Settings → Secrets and variables → Actions")
-              # Exit with non-zero so the run clearly indicates the missing secrets
               raise SystemExit("Missing email secrets")
 
-          # Prepare email
           msg = EmailMessage()
           msg['Subject'] = 'Daily: scanner.py + trend.py output'
           msg['From'] = user
           msg['To'] = user
-          # Put a small preview in the body and attach full output
           preview_lines = out.splitlines()[:30]
           msg.set_content("Attached: combined script output.\n\nPreview:\n" + "\n".join(preview_lines))
           msg.add_attachment(out, filename="daily_output.txt")
@@ -114,7 +129,6 @@ jobs:
           except Exception as e:
               print("Email send failed:", type(e).__name__, str(e))
               traceback.print_exc()
-              # Provide friendly hint
               print("\nHints:")
               print("- Ensure the App Password is active and 2-Step Verification is enabled on the Google account.")
               print("- If this is a Google Workspace account, the admin may block SMTP/App Passwords.")
@@ -123,4 +137,4 @@ jobs:
 
       - name: Final note
         run: |
-          echo "Workflow finished. If email step failed, check the logs above for details."
+          echo "Workflow finished. If the email step failed, inspect the logs above for details."
