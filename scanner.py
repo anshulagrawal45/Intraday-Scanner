@@ -1,7 +1,7 @@
 import numpy as np
 import yfinance as yf
 import pandas as pd
-import talib
+import pandas_ta as ta
 import datetime as dt
 from tabulate import tabulate
 
@@ -25,11 +25,15 @@ def get_latest_indicators(ticker):
         if len(DF) < 50:
             return None
         
-        # Calculate indicators
-        DF['EMA_20'] = talib.EMA(DF['Close'], timeperiod=20)
-        DF['EMA_50'] = talib.EMA(DF['Close'], timeperiod=50)
-        DF['RSI'] = talib.RSI(DF['Close'], timeperiod=14)
-        DF['ADX'] = talib.ADX(DF['High'], DF['Low'], DF['Close'], timeperiod=14)
+        # Calculate indicators using pandas_ta
+        DF.ta.ema(length=20, append=True, col_names=('EMA_20',))
+        DF.ta.ema(length=50, append=True, col_names=('EMA_50',))
+        DF.ta.rsi(length=14, append=True, col_names=('RSI',))
+        DF.ta.adx(length=14, append=True)
+        
+        # Rename ADX column if needed (pandas_ta uses 'ADX_14')
+        if 'ADX_14' in DF.columns:
+            DF['ADX'] = DF['ADX_14']
         
         # Get latest values
         latest = DF.iloc[-1]
