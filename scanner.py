@@ -86,16 +86,13 @@ def scan_stocks(stock_list):
     """
     Scan multiple stocks and return trading candidates
     """
-    print("Scanning stocks...")
     results = []
     
     for ticker in stock_list:
-        print(f"  Analyzing {ticker}...", end="\r")
         data = get_latest_indicators(ticker)
         if data:
             results.append(data)
     
-    print(" " * 50, end="\r")  # Clear the line
     return results
 
 
@@ -108,69 +105,45 @@ def display_scan_results(results):
     watch_signals = [r for r in results if r['signal'] == 'WATCH']
     skip_signals = [r for r in results if r['signal'] == 'SKIP']
     
-    print("\n" + "="*120)
-    print("PRE-MARKET SCANNER - INTRADAY TRADING SIGNALS")
     print(f"Scan Time: {dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print("="*120)
     
     # BUY Signals
     if buy_signals:
-        print("\n🟢 BUY SIGNALS - Ready to Trade Today")
-        print("-"*120)
+        print("\n BUY SIGNALS")
         
         table_data = []
         for r in sorted(buy_signals, key=lambda x: x['rsi'], reverse=True):
             table_data.append([
                 r['ticker'],
-                f"₹{r['current_price']:.2f}",
+                f"{r['current_price']:.2f}",
                 f"{r['price_change_pct']:+.2f}%",
                 f"{r['rsi']:.1f}",
                 f"{r['adx']:.1f}",
-                "✓" if r['ema_bullish'] else "✗",
+                "Bull" if r['ema_bullish'] else "Bear",
                 f"{r['volume_ratio']:.2f}x",
                 r['signal_score']
             ])
         
-        headers = ["Ticker", "Price", "Change%", "RSI", "ADX", "EMA↑", "Volume", "Score"]
+        headers = ["Ticker", "Price", "Change%", "RSI", "ADX", "EMA", "Volume", "Score"]
         print(tabulate(table_data, headers=headers, tablefmt="simple"))
-        print(f"\nTotal BUY signals: {len(buy_signals)}")
     
     # WATCH Signals
     if watch_signals:
-        print("\n🟡 WATCH LIST - Monitor These Stocks")
-        print("-"*120)
+        print("\n WATCH LIST")
         
         table_data = []
         for r in sorted(watch_signals, key=lambda x: x['signal_score'], reverse=True):
             table_data.append([
                 r['ticker'],
-                f"₹{r['current_price']:.2f}",
+                f"{r['current_price']:.2f}",
                 f"{r['rsi']:.1f}",
                 f"{r['adx']:.1f}",
-                "✓" if r['ema_bullish'] else "✗",
+                "Bull" if r['ema_bullish'] else "Bear",
                 r['signal_score']
             ])
         
-        headers = ["Ticker", "Price", "RSI", "ADX", "EMA↑", "Score"]
+        headers = ["Ticker", "Price", "RSI", "ADX", "EMA", "Score"]
         print(tabulate(table_data, headers=headers, tablefmt="simple"))
-    
-    # SKIP Signals
-    print(f"\n⚪ SKIP: {len(skip_signals)} stocks not meeting criteria")
-    
-    print("\n" + "="*120)
-    print("TRADING PLAN FOR TODAY:")
-    print("-"*120)
-    
-    if buy_signals:
-        print(f"\n✓ Trade these {len(buy_signals)} stocks:")
-        for i, r in enumerate(sorted(buy_signals, key=lambda x: x['signal_score'], reverse=True), 1):
-            print(f"  {i}. {r['ticker']:<15} Entry: ₹{r['current_price']:.2f}  |  "
-                  f"Target: ₹{r['current_price']*1.01:.2f} (+1%)  |  "
-                  f"Stop Loss: ₹{r['current_price']*0.995:.2f} (-0.5%)")
-    else:
-        print("\n⚠ No strong BUY signals today. Consider staying out or using WATCH list.")
-    
-    print("\n" + "="*120)
     
     return buy_signals, watch_signals
 
